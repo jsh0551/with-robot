@@ -3,6 +3,7 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 #     http://www.apache.org/licenses/LICENSE-2.0
 
+import argparse
 from youBot import YouBot
 
 class KeyboardBot(YouBot):
@@ -20,6 +21,12 @@ class KeyboardBot(YouBot):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Depth Anything V2')
+    
+    parser.add_argument('---encoder', type=str, default='vitb', choices=['vitb', 'vitl'])
+    parser.add_argument('--version', type=int, default=1, choices=[1, 2])
+    args = parser.parse_args()
+
     client = KeyboardBot()
-    client.init_coppelia()
+    client.init_coppelia(args.encoder, args.version)
     client.run_coppelia()
