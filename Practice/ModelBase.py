@@ -5,7 +5,7 @@ from pynput import keyboard
 from pynput.keyboard import Key, Listener
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
-class PendulumBase:
+class Base:
     def __init__(self):
         client = RemoteAPIClient()
         self.sim = client.require('sim')

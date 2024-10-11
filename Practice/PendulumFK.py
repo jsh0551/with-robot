@@ -1,13 +1,13 @@
 import time
 import numpy as np
 from pynput import keyboard
-from ModelBase import PendulumBase
+from ModelBase import Base
 
 THETA1 = -30
 THETA2 = 120
 
 
-class Pendulum(PendulumBase):
+class Pendulum(Base):
     def __init__(self):
         super().__init__()
         # coppelia sim init
