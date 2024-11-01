@@ -16,17 +16,16 @@ class KeyboardBot(YouBot):
         self.control_gripper()
         # read lidarqa
         self.read_lidars()
-        # read camera
-        self.read_camera_1()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Depth Anything V2')
     
     parser.add_argument('---encoder', type=str, default='vitb', choices=['vitb', 'vitl'])
-    parser.add_argument('--version', type=int, default=1, choices=[1, 2])
+    parser.add_argument('---viz', type=bool, default=False, choices=[False, True])
+    parser.add_argument('--version', type=int, default=0, choices=[0, 1, 2])
     args = parser.parse_args()
 
     client = KeyboardBot()
-    client.init_coppelia(args.encoder, args.version)
+    client.init_coppelia(args.encoder, args.viz, args.version)
     client.run_coppelia()

@@ -60,7 +60,30 @@ class YouBot:
         self.client = RemoteAPIClient()
         self.sim = self.client.require("sim")
         self.run_flag = True
+        self.viz = False
+        self.version = 0
         self.control = Control()
+        self.youBot_ref = self.sim.getObject("/youBot_ref")
+        # Wheel Joints: front left, rear left, rear right, front right
+        self.wheels = []
+        self.wheels.append(self.sim.getObject("/rollingJoint_fl"))
+        self.wheels.append(self.sim.getObject("/rollingJoint_rl"))
+        self.wheels.append(self.sim.getObject("/rollingJoint_fr"))
+        self.wheels.append(self.sim.getObject("/rollingJoint_rr"))
+        # Arm Joints
+        self.arms = []
+        for i in range(5):
+            arm = self.sim.getObject(f"/youBotArmJoint{i}")
+            self.arms.append(arm)
+        # Gripper Joint
+        self.gripper = self.sim.getObject(f"/youBotGripperJoint2")
+        # lidar
+        self.lidars = []
+        for i in range(1, 14):
+            self.lidars.append(self.sim.getObject(f"/lidar_{i:02d}"))
+        # camera
+        self.camera_1 = self.sim.getObject(f"/camera_1")
+
 
     def on_press(self, key):
         deltaX, deltaZ = 1.0, np.pi / 10
@@ -132,8 +155,12 @@ class YouBot:
             self.control.vel_X = 0
             self.control.vel_Z = 0
 
-    def init_coppelia(self, encoder, version):
+    def init_coppelia(self, encoder, viz, version):
         # load RDE
+        self.viz = viz
+        self.version = version
+        if version == 0:
+            pass
         if version == 1:
             from depth_anything.dpt import DepthAnything
             self.depth_anything = DepthAnything.from_pretrained('LiheYoung/depth_anything_{}14'.format(encoder)).to(DEVICE).eval()
@@ -143,25 +170,6 @@ class YouBot:
             self.depth_anything.load_state_dict(torch.load(f'../checkpoints/depth_anything_v2_{encoder}.pth', map_location='cpu'))
             self.depth_anything = self.depth_anything.to(DEVICE).eval()
         # reference
-        self.youBot_ref = self.sim.getObject("/youBot_ref")
-        # Wheel Joints: front left, rear left, rear right, front right
-        self.wheels = []
-        self.wheels.append(self.sim.getObject("/rollingJoint_fl"))
-        self.wheels.append(self.sim.getObject("/rollingJoint_rl"))
-        self.wheels.append(self.sim.getObject("/rollingJoint_fr"))
-        self.wheels.append(self.sim.getObject("/rollingJoint_rr"))
-        # Arm Joints
-        self.arms = []
-        for i in range(5):
-            self.arms.append(self.sim.getObject(f"/youBotArmJoint{i}"))
-        # Gripper Joint
-        self.gripper = self.sim.getObject(f"/youBotGripperJoint2")
-        # lidar
-        self.lidars = []
-        for i in range(1, 14):
-            self.lidars.append(self.sim.getObject(f"/lidar_{i:02d}"))
-        # camera
-        self.camera_1 = self.sim.getObject(f"/camera_1")
 
     def control_car(self):
         self.sim.setJointTargetVelocity(
@@ -203,6 +211,19 @@ class YouBot:
         img = img.reshape((result[1][1], result[1][0], 3))
         return img
 
+    def show_video(self):
+        if self.viz == True:
+            img = self.read_camera_1()
+            if self.version != 0:
+                rgb_img = img[::-1,:,:]
+                depth = self.get_relative_depth(rgb_img)
+                cv2.imshow("object", depth)
+            else:
+                img = img[::-1,:, ::-1]
+                rgb_img = img[::-1,:,:]
+                cv2.imshow("object", rgb_img)
+            cv2.waitKey(10)
+
     def get_relative_depth(self, rgb_img):
         image = rgb_img / 255.0
         h, w = image.shape[:2]
@@ -231,12 +252,7 @@ class YouBot:
             # step
             self.run_step(count)
             self.sim.step()
-            img = self.read_camera_1()
-            # img = img[::-1,:, ::-1]
-            rgb_img = img[::-1,:,:]
-            depth = self.get_relative_depth(rgb_img)
-            cv2.imshow("object", depth)
-            cv2.waitKey(10)
+            self.show_video()
         cv2.destroyAllWindows()
         self.sim.stopSimulation()
 
