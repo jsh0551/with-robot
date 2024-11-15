@@ -250,9 +250,12 @@ class YouBot:
         while self.run_flag:
             count += 1
             # step
-            self.run_step(count)
-            self.sim.step()
-            self.show_video()
+            try:
+                self.run_step(count)
+                self.sim.step()
+                self.show_video()
+            except:
+                break
         cv2.destroyAllWindows()
         self.sim.stopSimulation()
 

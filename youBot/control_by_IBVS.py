@@ -12,20 +12,33 @@ from scipy.optimize import fsolve
 from scipy.spatial.transform import Rotation as R
 
 SETTING = {
-    'joint' : [0, -45, -60, -60, 0],
+    'joint' : [0, -40, -65, -60, 0],
     't_joint' : [ -0,  -70.4, -55.4, -41.3,  -0. ],
     'gripper' : -0.05
 }
 
-TARGET = np.array([[124.81145251396649, 189.28631284916202], [199.7940492794049, 188.09995350999534], [202.3468520664349, 84.31324835843955]])
+TARGET = np.array([[124.72159624413145, 189.28028169014084], [122.72228750489619, 85.60360360360359], [165.925, 120.925], [202.3468520664349, 84.31324835843955], [199.7940492794049, 188.09995350999534], [166.11045828437133, 84.77634155895025]])
 COLORS = {
-            'red': [
-                (np.array([0, 100, 100]), np.array([10, 255, 255])),
-                (np.array([160, 100, 100]), np.array([180, 255, 255]))
-            ],
-            'blue': [(np.array([100, 100, 100]), np.array([130, 255, 255]))],
-            'green': [(np.array([40, 100, 100]), np.array([80, 255, 255]))]
-        }
+    'red': [
+        (np.array([0, 100, 100]), np.array([10, 255, 255]))
+        # (np.array([160, 100, 100]), np.array([180, 255, 255]))
+    ],
+    'orange': [
+        (np.array([11, 100, 100]), np.array([25, 255, 255]))
+    ],
+    'yellow': [
+        (np.array([26, 100, 100]), np.array([35, 255, 255]))
+    ],
+    'green': [
+        (np.array([36, 100, 100]), np.array([80, 255, 255]))
+    ],
+    'blue': [
+        (np.array([100, 100, 100]), np.array([130, 255, 255]))
+    ],
+    'cyan': [
+        (np.array([81, 100, 100]), np.array([99, 255, 255]))
+    ]
+}
 PI_HALF = np.pi / 2
 
 # forward kinematics
@@ -136,6 +149,8 @@ class VisualServoBot(YouBot):
     def __init__(self):
         super().__init__()
         self.f_len = self.getGlobalFocalLength()
+        dummyHandle = self.sim.createDummy(1.0)
+
         self.joints  = []
         for i,arm in enumerate(self.arms):
             jPos = SETTING['joint'][i]
@@ -171,26 +186,29 @@ class VisualServoBot(YouBot):
             jPos = self.sim.getJointPosition(joint)
             self.sim.setJointTargetPosition(joint, jPos)
         circle_img, self.ballPixelPositions = self.detect_features(bgr_img)
+        print(self.ballPixelPositions)
         self.actuation(self.ballPixelPositions)
         # for i,joint in enumerate(self.joints[:5]):
-        #     jPos = SETTING['joint'][i]
+        #     jPos = SETTING['t_joint'][i]
         #     self.sim.setJointTargetPosition(joint, np.radians(jPos))
 
     def actuation(self, ballPixelPositions):
         J = self.CalculateJacobian(ballPixelPositions)
         print(ballPixelPositions)
         if len(J) > 0:
-            velPixel = -(TARGET - np.array(ballPixelPositions)).flatten()
+            velPixel = (TARGET - np.array(ballPixelPositions)).flatten()
             Jpinv = np.linalg.pinv(J)
             velCam = Jpinv@velPixel
-            x, y, z = velCam[:3]/3000
-            a, b, c =velCam[3:]
-            self.targetPose[0] -= x*3
-            self.targetPose[1] += y
-            self.targetPose[2] += z*10
-            self.targetPose[3] -= a
+            x, y, z = velCam[:3]/2000
+            a, b, c =velCam[3:]/10000
+            print("pos!: ",self.targetPose[:3])
+            print("angle!: ",np.round(np.degrees(self.targetPose[3:]),2))
+            self.targetPose[0] += x
+            self.targetPose[1] -= y
+            self.targetPose[2] -= z
+            self.targetPose[3] += a
             self.targetPose[4] += b
-            self.targetPose[5] -= c
+            self.targetPose[5] += c
             print("target pos!: ",self.targetPose[:3])
             print("target angle!: ",np.round(np.degrees(self.targetPose[3:]),2))
             js = self.read_joints(self.joints)
@@ -200,6 +218,7 @@ class VisualServoBot(YouBot):
             # for joint, theta in zip(self.joints, target_thetas):
             #     self.sim.setJointTargetPosition(joint, theta)
             diff_sum = self.trace_joint(self.joints, target_thetas)
+            print("diff",diff_sum)
 
     def read_joints(self, joints):
         js = []
@@ -254,9 +273,13 @@ class VisualServoBot(YouBot):
         thetas = []
         for i, target in enumerate(target_thetas):
             diff = js[i] - target
-            diff_sum += diff
-            # thetas.append(diff)
-            thetas.append(js[i] - min(0.02, max(-0.02, diff)))
+            if diff > 0.01:
+                diff = 0.01
+            elif diff < -0.01:
+                diff = -0.01
+            diff_sum += abs(diff)
+            thetas.append(diff)
+            # thetas.append(js[i] - min(0.02, max(-0.02, diff)))
         for joint, theta in zip(joints, target_thetas):
             self.sim.setJointTargetPosition(joint, theta)
         return diff_sum
