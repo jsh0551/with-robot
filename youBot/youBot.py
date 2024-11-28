@@ -6,6 +6,7 @@
 from dataclasses import dataclass
 from abc import abstractmethod
 import numpy as np
+import traceback
 from pynput import keyboard
 from pynput.keyboard import Key, Listener
 
@@ -254,7 +255,11 @@ class YouBot:
                 self.run_step(count)
                 self.sim.step()
                 self.show_video()
-            except:
+            except Exception as e:
+                print(e)
+                tb = traceback.format_exc()
+                print("Traceback details:")
+                print(tb)
                 break
         cv2.destroyAllWindows()
         self.sim.stopSimulation()

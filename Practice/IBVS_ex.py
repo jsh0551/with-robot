@@ -5,10 +5,39 @@ import cv2
 from pynput import keyboard
 from ModelBase import Base
 
-TARGET = np.array([[448.65582344686817, 62.34417655313177], [62.34417655313177, 448.65582344686817], [62.395300906842536, 255.5],
-                    [62.34417655313177, 62.34417655313177], [448.65582344686817, 448.65582344686817],
-                    [255.5, 255.5], [371.38202571882675, 294.1710735442855], [255.5, 62.395300906842536]
-                    ])
+# TARGET = np.array([[448.65582344686817, 62.34417655313177], [62.34417655313177, 448.65582344686817], [62.395300906842536, 255.5],
+#                     [62.34417655313177, 62.34417655313177], [448.65582344686817, 448.65582344686817],
+#                     [255.5, 255.5], [371.38202571882675, 294.1710735442855], [255.5, 62.395300906842536]
+#                     ])
+# COLORS = {
+#     'red': [
+#         (np.array([0, 100, 100]), np.array([10, 255, 255]))
+#         # (np.array([160, 100, 100]), np.array([180, 255, 255]))
+#     ],
+#     'orange': [
+#         (np.array([11, 100, 100]), np.array([25, 255, 255]))
+#     ],
+#     'yellow': [
+#         (np.array([26, 100, 100]), np.array([35, 255, 255]))
+#     ],
+#     'green': [
+#         (np.array([36, 100, 100]), np.array([80, 255, 255]))
+#     ],
+#     'blue': [
+#         (np.array([100, 100, 100]), np.array([130, 255, 255]))
+#     ],
+#     'purple': [
+#         (np.array([131, 100, 100]), np.array([155, 255, 255]))
+#     ],
+#     'pink': [
+#         (np.array([156, 100, 100]), np.array([165, 255, 255]))
+#     ],
+#     'cyan': [
+#         (np.array([81, 100, 100]), np.array([99, 255, 255]))
+#     ]
+# }
+
+TARGET = np.array([[124.0, 202.53735632183907], [92.8230890464933, 86.91725768321513], [87.7598797250859, 136.79725085910653], [200.8926619828259, 85.00468384074941], [198.43244506778865, 188.51706404862082], [157.65282865282865, 107.45706145706146]])
 COLORS = {
     'red': [
         (np.array([0, 100, 100]), np.array([10, 255, 255]))
@@ -26,12 +55,6 @@ COLORS = {
     'blue': [
         (np.array([100, 100, 100]), np.array([130, 255, 255]))
     ],
-    'purple': [
-        (np.array([131, 100, 100]), np.array([155, 255, 255]))
-    ],
-    'pink': [
-        (np.array([156, 100, 100]), np.array([165, 255, 255]))
-    ],
     'cyan': [
         (np.array([81, 100, 100]), np.array([99, 255, 255]))
     ]
@@ -41,9 +64,9 @@ class IBVS(Base):
     def __init__(self):
         super().__init__()
         # coppelia sim init
-        self.camera = self.sim.getObject('/Camera1')
-        self.sim.setObjectPosition(self.camera, [0.4, 0.3, 1.0])
-        self.sim.setObjectOrientation(self.camera, [np.radians(-175), np.radians(-15), np.radians(-165)])
+        self.camera = self.sim.getObject('/camera_1')
+        # self.sim.setObjectPosition(self.camera, [0.4, 0.3, 1.0])
+        # self.sim.setObjectOrientation(self.camera, [np.radians(-175), np.radians(-15), np.radians(-165)])
         cam_position = self.sim.getObjectPosition(self.camera)
         cam_angle = self.sim.getObjectOrientation(self.camera)
         # print(cam_angle)
@@ -58,17 +81,21 @@ class IBVS(Base):
         # print(self.cam_pos)
         # self.cam_pos[2] += 0.005
         J = self.CalculateJacobian(self.ballPixelPositions)
-        # print(self.ballPixelPositions)
+        print("ball position ",self.ballPixelPositions)
+        if len(self.ballPixelPositions) > 0:
+            pixel_error = np.linalg.norm(TARGET - np.array(self.ballPixelPositions))
+            print("pixel error",pixel_error)
         if len(J) > 0:
             velPixel = (TARGET - np.array(self.ballPixelPositions)).flatten()
-        # #     print("a",TARGET)
-        # #     print("b",self.ballPixelPositions)
+        #     print("a",TARGET)
+        #     print("b",self.ballPixelPositions)
             Jpinv = np.linalg.pinv(J)
             velCam = Jpinv@velPixel
             x, y, z = velCam[:3]/50
             a, b, c = velCam[3:]/25
             # print(velCam[:3],np.degrees(velCam[3:]/10))
-            print("..",self.cameraPose[:3],np.degrees(self.cameraPose[3:]))
+            # print("..",self.cameraPose[:3],np.degrees(self.cameraPose[3:]))
+            print(f"output:{[x,y,z]},{np.round(np.degrees(np.array([a,b,c])),2)}")
             velCam = velCam.reshape(-1,2)
             self.cameraPose[0] += x
             self.cameraPose[1] -= y
@@ -76,6 +103,9 @@ class IBVS(Base):
             self.cameraPose[3] += a
             self.cameraPose[4] += b
             self.cameraPose[5] += c
+            dummy_handle = self.sim.createDummy(0.005)  # Size of dummy
+            self.sim.setObjectPosition(dummy_handle, -1, self.cameraPose[:3])
+            self.sim.setObjectAlias(dummy_handle, f"Sample")
             for i in range(3,6):
                 if self.cameraPose[i] > np.pi:
                     self.cameraPose[i] -= 2*np.pi
@@ -171,6 +201,6 @@ if __name__ == "__main__":
         try:
             ibvs.actuation()
             ibvs.sensing()
-        except:
+        except Exception as e:
             break
     ibvs.sim.stopSimulation()

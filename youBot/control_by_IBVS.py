@@ -10,14 +10,20 @@ import cv2
 from youBot import YouBot
 from scipy.optimize import fsolve
 from scipy.spatial.transform import Rotation as R
+from scipy.optimize import minimize
+
 
 SETTING = {
-    'joint' : [0, -40, -65, -60, 0],
+    'joint' : [0, -55, -60, -40, 0],
+    # 'joint' : [0, 0, 0, 0, 0],
+    # 'joint' : [ -0,  -70.4, -55.4, -41.3,  -0.],
+    # 'joint' : [-2.000e-02, -4.370e+01, -7.737e+01, -3.635e+01,  0.000e+00],
     't_joint' : [ -0,  -70.4, -55.4, -41.3,  -0. ],
     'gripper' : -0.05
 }
-
-TARGET = np.array([[124.72159624413145, 189.28028169014084], [122.72228750489619, 85.60360360360359], [165.925, 120.925], [202.3468520664349, 84.31324835843955], [199.7940492794049, 188.09995350999534], [166.11045828437133, 84.77634155895025]])
+# TARGET = np.array([[124.0, 202.53735632183907], [92.8230890464933, 86.91725768321513], [87.7598797250859, 136.79725085910653], [200.8926619828259, 85.00468384074941], [198.43244506778865, 188.51706404862082], [164.55939226519337, 169.34622467771638], [200.05729820158928, 120.95650355499791], [157.65282865282865, 107.45706145706146]])
+# TARGET = np.array([[124.0, 202.53735632183907], [92.8230890464933, 86.91725768321513], [87.7598797250859, 136.79725085910653], [200.8926619828259, 85.00468384074941], [198.43244506778865, 188.51706404862082], [157.65282865282865, 107.45706145706146]])
+TARGET = np.array([[123.86056253740274, 202.97366846199878], [92.3797729618163, 86.05572755417957], [87.30468319559228, 136.45509641873278], [201.46764705882353, 84.12352941176471], [199.05340078695895, 188.72625070264192]])
 COLORS = {
     'red': [
         (np.array([0, 100, 100]), np.array([10, 255, 255]))
@@ -35,16 +41,21 @@ COLORS = {
     'blue': [
         (np.array([100, 100, 100]), np.array([130, 255, 255]))
     ],
-    'cyan': [
-        (np.array([81, 100, 100]), np.array([99, 255, 255]))
-    ]
+    # 'purple': [
+    #     (np.array([131, 100, 100]), np.array([155, 255, 255]))
+    # ],
+    # 'pink': [
+    #     (np.array([156, 100, 100]), np.array([165, 255, 255]))
+    # ],
+    # 'cyan': [
+    #     (np.array([81, 100, 100]), np.array([99, 255, 255]))
+    # ]
 }
 PI_HALF = np.pi / 2
 
 # forward kinematics
-def fk(thetas, params):
-    j1, j2, j3, j4 = thetas[:4]
-    j0, pc = params[:2]
+def fk(thetas, pc):
+    j0, j1, j2, j3, j4 = thetas
     # 월드 기준 자동차
     dc = R.from_quat(pc[3:]).as_euler('xyz')[-1]
     TWC = np.array([
@@ -126,31 +137,70 @@ def fk(thetas, params):
     ])
     TW4 = TW3 @ T34
 
-    pe_hat = TW4 @ np.array([ 0.0,   0.0,   0.123, 1])
+    # joint-4 -> camera_1
+    theta_x = np.deg2rad(-20)   
+    theta_y = np.deg2rad(-0.356) 
+    theta_z = np.deg2rad(-179)  
 
-    return pe_hat[:3]
+    T_Cam = np.array([ # 좌표이동
+        [1, 0, 0, 0.0],
+        [0, 1, 0, -0.01966],
+        [0, 0, 1, 0.07455],
+        [0, 0, 0, 1]
+    ])
+    R_x = np.array([
+        [1, 0, 0, 0],
+        [0, np.cos(theta_x), -np.sin(theta_x), 0],
+        [0, np.sin(theta_x), np.cos(theta_x), 0],
+        [0, 0, 0, 1]
+    ])
+    R_y = np.array([
+        [np.cos(theta_y), 0, np.sin(theta_y), 0],
+        [0, 1, 0, 0],
+        [-np.sin(theta_y), 0, np.cos(theta_y), 0],
+        [0, 0, 0, 1]
+    ])
+    R_z = np.array([
+        [np.cos(theta_z), -np.sin(theta_z), 0, 0],
+        [np.sin(theta_z), np.cos(theta_z), 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ])
+
+    T4CAM = T_Cam @ R_x @ R_y @ R_z
+    TWCAM = TW4 @ T4CAM
+    position = TWCAM[:3, 3]
+    rotation_matrix = TWCAM[:3, :3]
+    rpy = -R.from_matrix(rotation_matrix).as_euler('xyz', degrees=True)
+    return position, rpy
 
 def ik(thetas, params):
-    pt = params[-1][:3]
-    pe_hat = fk(thetas, params)
-    # theta 범위 검증
-    # if thetas[0] < np.deg2rad(-90) or np.deg2rad(75) < thetas[0]:
-    #     return 10, 0, 0, 0
-    # elif thetas[1] < np.deg2rad(-131.00) or np.deg2rad(131.00) < thetas[1]:
-    #     return 10, 0, 0, 0
-    # elif thetas[2] < np.deg2rad(-102.00) or np.deg2rad(102.00) < thetas[2]:
-    #     return 10, 0, 0, 0
-    # elif thetas[3] < np.deg2rad(-90.00) or np.deg2rad(90.00) < thetas[3]:
-    #     return 10, 0, 0, 0
-    return np.linalg.norm(pe_hat - pt), 0, 0, 0
+    pc,pt = params
+    t_pose = pt[:3]
+    t_quat = pt[3:]
+    cam_pose, cam_orien = fk(thetas, pc)
+    cam_quat = R.from_euler('xyz', cam_orien, degrees=True).as_quat()
+    return np.linalg.norm(t_pose - cam_pose), np.linalg.norm(t_quat - cam_quat), 0, 0, 0
 
+def ik_cost(thetas, params):
+    pc, pt = params
+    t_pose = pt[:3]
+    t_quat = pt[3:]
+    cam_pose, cam_orien = fk(thetas, pc)
+    cam_quat = R.from_euler('xyz', cam_orien, degrees=True).as_quat()
+
+    # 포즈와 방향의 오차를 비용으로 계산
+    position_error = np.linalg.norm(t_pose - cam_pose)
+    orientation_error = np.linalg.norm(t_quat - cam_quat)
+    return position_error + orientation_error
 
 class VisualServoBot(YouBot):
     def __init__(self):
         super().__init__()
         self.f_len = self.getGlobalFocalLength()
-        dummyHandle = self.sim.createDummy(1.0)
-
+        self.diff_sum = 0
+        self.pixelErrorMin = 10000
+        self.stop_flag = False
         self.joints  = []
         for i,arm in enumerate(self.arms):
             jPos = SETTING['joint'][i]
@@ -159,12 +209,14 @@ class VisualServoBot(YouBot):
         self.sim.setJointPosition(self.gripper, SETTING['gripper'])
         self.joints += self.arms
         self.joints.append(self.gripper)
+        self.cam_pose = self.sim.getObjectPosition(self.camera_1)
 
-        self.target = self.sim.getObject(f"/pe_ref")
-        ee_position = self.sim.getObjectPosition(self.target)
-        ee_angle = self.sim.getObjectOrientation(self.target) # radian
+        ee_position = self.sim.getObjectPosition(self.camera_1)
+        ee_angle = self.sim.getObjectOrientation(self.camera_1) # radian
         self.targetPose = ee_position + ee_angle
-        # target_thetas = self.solve(js, self.targetPose)
+        js = self.read_joints(self.joints)
+        ps = self.read_points(self.targetPose)
+        self.target_thetas = self.solve(js, ps)
         # joint 제어 모드 변경
         for i,joint in enumerate(self.joints):
             self.sim.setObjectInt32Param(
@@ -182,43 +234,78 @@ class VisualServoBot(YouBot):
         # self.control_gripper()
         img = self.read_camera_1()
         bgr_img = img[::-1,:,::-1]
-        for i,joint in enumerate(self.joints[:5]):
-            jPos = self.sim.getJointPosition(joint)
-            self.sim.setJointTargetPosition(joint, jPos)
         circle_img, self.ballPixelPositions = self.detect_features(bgr_img)
-        print(self.ballPixelPositions)
-        self.actuation(self.ballPixelPositions)
+        if len(self.ballPixelPositions) == len(TARGET):
+            pixel_error = np.linalg.norm(TARGET - np.array(self.ballPixelPositions))
+            print("pixel error",pixel_error, self.pixelErrorMin)
+            if (self.pixelErrorMin < 100) and (abs((self.pixelErrorMin-pixel_error)/pixel_error)>0.05) and (self.pixelErrorMin < pixel_error):
+                self.stop_flag = True
+            if self.pixelErrorMin >= pixel_error:
+                self.pixelErrorMin = pixel_error
+        
+        # print(self.ballPixelPositions)
         # for i,joint in enumerate(self.joints[:5]):
-        #     jPos = SETTING['t_joint'][i]
+        #     jPos = SETTING['joint'][i]
         #     self.sim.setJointTargetPosition(joint, np.radians(jPos))
+        if self.stop_flag:
+            pass
+        elif self.diff_sum == 0:
+            self.target_thetas, self.diff_sum = self.calculateTarget()
+        else:
+            self.diff_sum = self.trace_joint(self.joints, self.target_thetas)
+            print(self.diff_sum)
+            if self.diff_sum < 0.002:
+                self.diff_sum = 0
 
-    def actuation(self, ballPixelPositions):
-        J = self.CalculateJacobian(ballPixelPositions)
-        print(ballPixelPositions)
+    def calculateTarget(self):
+        J = self.CalculateJacobian(self.ballPixelPositions)
+        print("ball position ",self.ballPixelPositions)
+        ee_position = self.sim.getObjectPosition(self.camera_1)
+        ee_angle = self.sim.getObjectOrientation(self.camera_1) # radian
+        self.targetPose = ee_position + ee_angle
         if len(J) > 0:
-            velPixel = (TARGET - np.array(ballPixelPositions)).flatten()
+            velPixel = (TARGET - np.array(self.ballPixelPositions)).flatten()
             Jpinv = np.linalg.pinv(J)
             velCam = Jpinv@velPixel
-            x, y, z = velCam[:3]/2000
-            a, b, c =velCam[3:]/10000
-            print("pos!: ",self.targetPose[:3])
-            print("angle!: ",np.round(np.degrees(self.targetPose[3:]),2))
+            x, y, z = velCam[:3]/50
+            a, b, c = velCam[3:]/50
+            print(f"output:{[x,y,z]},{np.round(np.degrees(np.array([a,b,c])),2)}")
             self.targetPose[0] += x
             self.targetPose[1] -= y
             self.targetPose[2] -= z
             self.targetPose[3] += a
             self.targetPose[4] += b
-            self.targetPose[5] += c
+            self.targetPose[5] += c*20
+            for i in range(3,6):
+                if self.targetPose[i] > np.pi:
+                    self.targetPose[i] -= 2*np.pi
+                elif self.targetPose[i] < -np.pi:
+                    self.targetPose[i] += 2*np.pi
+            
+            dummy_handle = self.sim.createDummy(0.01)  # Size of dummy
+            self.sim.setObjectPosition(dummy_handle, -1, self.targetPose[:3])
+            self.sim.setObjectAlias(dummy_handle, f"Sample")
             print("target pos!: ",self.targetPose[:3])
             print("target angle!: ",np.round(np.degrees(self.targetPose[3:]),2))
             js = self.read_joints(self.joints)
-            ps = self.read_points(self.targetPose)
+            ps = self.read_points(self.targetPose) # TODO
             target_thetas = self.solve(js, ps)
-            print("target_thetas :",np.round(np.degrees(target_thetas),2))
-            # for joint, theta in zip(self.joints, target_thetas):
-            #     self.sim.setJointTargetPosition(joint, theta)
-            diff_sum = self.trace_joint(self.joints, target_thetas)
-            print("diff",diff_sum)
+            print("target_thetas :",np.round(np.degrees(target_thetas),2),SETTING['t_joint'])
+            diff_sum = 0
+            for i, target in enumerate(target_thetas):
+                diff = target - js[i]
+                print(diff,target,js[i])
+                diff_sum += abs(diff)
+            return target_thetas, diff_sum
+        else:
+            js = self.read_joints(self.joints)
+            ps = self.read_points(self.targetPose) # TODO
+            target_thetas = self.solve(js, ps)
+            diff_sum = 0
+            for i, target in enumerate(target_thetas):
+                diff = target - js[i]
+                diff_sum += abs(diff)
+            return target_thetas, diff_sum 
 
     def read_joints(self, joints):
         js = []
@@ -234,7 +321,7 @@ class VisualServoBot(YouBot):
         # Joint-0 위치
         points.append(self.sim.getObject(f"/p0_ref"))
         # End Effector 위치
-        points.append(self.sim.getObject(f"/pe_ref"))
+        points.append(self.sim.getObject(f"/camera_1"))
         ps = []
         for point in points:
             p = self.sim.getObjectPosition(point)
@@ -249,39 +336,42 @@ class VisualServoBot(YouBot):
 
     def solve(self, js, ps):
         p0, pt = ps[1], ps[-1]
-        diff = pt[:2] - p0[:2]
-        angle = math.atan2(diff[1], diff[0])
-        d0 = R.from_quat(p0[3:]).as_euler('xyz')[-1]
-        j0 = angle - d0 - PI_HALF
-        target_thetas = fsolve(
-            ik,
-            [js[1], js[2], js[3], js[4]],
-            [j0, ps[0], ps[-1]]
-        )
-        dt = R.from_quat(pt[3:]).as_euler('xyz')[-1]
-        j4_diff = (j0 + PI_HALF - dt) % PI_HALF
-        if PI_HALF / 2 < j4_diff:
-            j4_diff -= PI_HALF
-        elif j4_diff < -PI_HALF / 2:
-            j4_diff += PI_HALF
-        # target_thetas[3] += j4_diff
-        return np.concatenate((np.array([j0]), target_thetas))
+        j0 = js[0]
+        initial_thetas = np.array([js[0], js[1], js[2], js[3], js[4]])
+        params = [ps[0], pt]
+        theta_bounds = [(np.deg2rad(-5),np.deg2rad(5)),
+                        (np.deg2rad(-80),np.deg2rad(-30)),
+                        (np.deg2rad(-80),np.deg2rad(-30)),
+                        (np.deg2rad(-80),np.deg2rad(-30)),
+                        (np.deg2rad(-20),np.deg2rad(20))]
 
+        result = minimize(
+            ik_cost,                     # 목적 함수
+            initial_thetas,              # 초기값
+            args=(params,),              # 추가 매개변수
+            bounds=theta_bounds,         # 범위 제한
+            method='L-BFGS-B',           # 제약 조건을 지원하는 최적화 알고리즘
+            options={'ftol': 1e-8}       # 수렴 기준
+        )
+
+        return result.x
+    
     def trace_joint(self, joints, target_thetas):
         js = self.read_joints(joints)
         diff_sum = 0
         thetas = []
         for i, target in enumerate(target_thetas):
-            diff = js[i] - target
-            if diff > 0.01:
-                diff = 0.01
-            elif diff < -0.01:
-                diff = -0.01
+            diff = target - js[i]
+            if diff > 0.1:
+                diff = 0.1
+            elif diff < -0.1:
+                diff = -0.1
+            thetas.append(js[i]+diff)
             diff_sum += abs(diff)
-            thetas.append(diff)
-            # thetas.append(js[i] - min(0.02, max(-0.02, diff)))
-        for joint, theta in zip(joints, target_thetas):
+        for joint, theta in zip(joints, thetas):
             self.sim.setJointTargetPosition(joint, theta)
+        # print("---target theta:",np.round(np.degrees(target_thetas),2))
+        # print("---theta:",np.round(np.degrees(np.array(thetas)),2),np.round(np.degrees(js),2))
         return diff_sum
 
     def getGlobalFocalLength(self):
@@ -289,11 +379,12 @@ class VisualServoBot(YouBot):
         res, resolution = self.sim.getVisionSensorResolution(self.camera_1)
         # distance per pixel
         planeWidth = 2 * math.tan(perspAngle / 2)
+        # print(planeWidth, resolution)
         distancePerPixel = planeWidth / resolution
         # global focal length
         pixelFocalLength = (resolution / 2) / math.tan(perspAngle / 2)
         globalFocalLength = pixelFocalLength * distancePerPixel
-        return globalFocalLength
+        return 1/distancePerPixel
 
     def detect_features(self, image):
         # BGR에서 HSV로 변환
@@ -325,18 +416,16 @@ class VisualServoBot(YouBot):
         return image, ballPixelPositions
         
     def getImageJacobian(self, z, u, v):
-        img_jacobian = np.array([[-self.f_len/z, 0, u/z, u*v/self.f_len, -self.f_len - u**2/self.f_len, v],
-            [0, -self.f_len/z, v/z, self.f_len + v**2/self.f_len, -u*v/self.f_len, -u]])
+        img_jacobian = np.array([[-self.f_len/z, 0, u/z, (u*v)/self.f_len, -self.f_len - (u**2)/self.f_len, v],
+            [0, -self.f_len/z, v/z, self.f_len + (v**2)/self.f_len, -(u*v)/self.f_len, -u]])
         return img_jacobian
 
     def CalculateJacobian(self, ballPixelPositions):
-        ee = self.sim.getObject(f"/pe_ref")
-        x, y, z = self.sim.getObjectPosition(ee)
+        x, y, z = self.sim.getObjectPosition(self.camera_1)
         img_jacobians = []
         for position,t_position in zip(ballPixelPositions, TARGET):
             u,v = position
             tu,tv = t_position
-            # s = np.linalg.norm(np.array(position) - np.array(t_position))/256
             img_jacobian = self.getImageJacobian(z, u, v)
             img_jacobians.append(img_jacobian)
         if img_jacobians:
@@ -353,7 +442,6 @@ class VisualServoBot(YouBot):
             else:
                 bgr_img = img[::-1,:,::-1]
                 circle_img, self.ballPixelPositions = self.detect_features(bgr_img)
-                # print(self.ballPixelPositions)
                 cv2.imshow("object", circle_img)
             cv2.waitKey(10)
 
