@@ -37,7 +37,9 @@ from ModelBase import Base
 #     ]
 # }
 
-TARGET = np.array([[124.0, 202.53735632183907], [92.8230890464933, 86.91725768321513], [87.7598797250859, 136.79725085910653], [200.8926619828259, 85.00468384074941], [198.43244506778865, 188.51706404862082], [157.65282865282865, 107.45706145706146]])
+# TARGET = np.array([[124.0, 202.53735632183907], [92.8230890464933, 86.91725768321513], [87.7598797250859, 136.79725085910653], [200.8926619828259, 85.00468384074941], [198.43244506778865, 188.51706404862082], [157.65282865282865, 107.45706145706146]])
+TARGET = np.array([[131.13943746259724, 202.97366846199878], [162.62022703818369, 86.05572755417957], [167.6953168044077, 136.45509641873278], [53.53235294117647, 84.12352941176471], [55.91484593837534, 188.7204481792717]])
+
 COLORS = {
     'red': [
         (np.array([0, 100, 100]), np.array([10, 255, 255]))
@@ -55,9 +57,9 @@ COLORS = {
     'blue': [
         (np.array([100, 100, 100]), np.array([130, 255, 255]))
     ],
-    'cyan': [
-        (np.array([81, 100, 100]), np.array([99, 255, 255]))
-    ]
+    # 'cyan': [
+    #     (np.array([81, 100, 100]), np.array([99, 255, 255]))
+    # ]
 }
 
 class IBVS(Base):
@@ -86,21 +88,21 @@ class IBVS(Base):
             pixel_error = np.linalg.norm(TARGET - np.array(self.ballPixelPositions))
             print("pixel error",pixel_error)
         if len(J) > 0:
-            velPixel = (TARGET - np.array(self.ballPixelPositions)).flatten()
+            velPixel = -(TARGET - np.array(self.ballPixelPositions)).flatten()
         #     print("a",TARGET)
         #     print("b",self.ballPixelPositions)
             Jpinv = np.linalg.pinv(J)
             velCam = Jpinv@velPixel
-            x, y, z = velCam[:3]/50
-            a, b, c = velCam[3:]/25
+            x, y, z = velCam[:3]/200
+            a, b, c = velCam[3:]/50
             # print(velCam[:3],np.degrees(velCam[3:]/10))
             # print("..",self.cameraPose[:3],np.degrees(self.cameraPose[3:]))
             print(f"output:{[x,y,z]},{np.round(np.degrees(np.array([a,b,c])),2)}")
             velCam = velCam.reshape(-1,2)
             self.cameraPose[0] += x
-            self.cameraPose[1] -= y
-            self.cameraPose[2] -= z
-            self.cameraPose[3] += a
+            self.cameraPose[1] += y
+            self.cameraPose[2] += z*4
+            self.cameraPose[3] -= a
             self.cameraPose[4] += b
             self.cameraPose[5] += c
             dummy_handle = self.sim.createDummy(0.005)  # Size of dummy
@@ -146,7 +148,7 @@ class IBVS(Base):
 
     def detect_features(self, image):
         # BGR에서 HSV로 변환
-        image = image.copy()
+        image = cv2.flip(image.copy(),1)
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         ballPixelPositions = []
         for color, ranges in COLORS.items():
@@ -173,6 +175,7 @@ class IBVS(Base):
                         # print(color, cX,cY)
                         cv2.circle(image, (int(cX), int(cY)), 3, (255, 255, 0), -1)
         # print("=====")
+        cv2.flip(image,1)
         return image, ballPixelPositions
         
     def getImageJacobian(self, z, u, v):

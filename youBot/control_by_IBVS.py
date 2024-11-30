@@ -7,6 +7,7 @@ import argparse
 import numpy as np
 import math
 import cv2
+import cv2.aruco as aruco
 from youBot import YouBot
 from scipy.optimize import fsolve
 from scipy.spatial.transform import Rotation as R
@@ -17,13 +18,21 @@ SETTING = {
     'joint' : [0, -55, -60, -40, 0],
     # 'joint' : [0, 0, 0, 0, 0],
     # 'joint' : [ -0,  -70.4, -55.4, -41.3,  -0.],
-    # 'joint' : [-2.000e-02, -4.370e+01, -7.737e+01, -3.635e+01,  0.000e+00],
     't_joint' : [ -0,  -70.4, -55.4, -41.3,  -0. ],
     'gripper' : -0.05
 }
+## aruco target
+TARGET = np.array([[454.0, 291.0], [352.0, 292.0], [352.0, 192.0], [458.0, 190.0],
+ [172.0, 432.0], [77.0, 433.0], [70.0, 340.0], [170.0, 335.0]
+ ])
+##
+
+## feat 8
 # TARGET = np.array([[124.0, 202.53735632183907], [92.8230890464933, 86.91725768321513], [87.7598797250859, 136.79725085910653], [200.8926619828259, 85.00468384074941], [198.43244506778865, 188.51706404862082], [164.55939226519337, 169.34622467771638], [200.05729820158928, 120.95650355499791], [157.65282865282865, 107.45706145706146]])
+## feat 6
 # TARGET = np.array([[124.0, 202.53735632183907], [92.8230890464933, 86.91725768321513], [87.7598797250859, 136.79725085910653], [200.8926619828259, 85.00468384074941], [198.43244506778865, 188.51706404862082], [157.65282865282865, 107.45706145706146]])
-TARGET = np.array([[123.86056253740274, 202.97366846199878], [92.3797729618163, 86.05572755417957], [87.30468319559228, 136.45509641873278], [201.46764705882353, 84.12352941176471], [199.05340078695895, 188.72625070264192]])
+## feat 5
+# TARGET = np.array([[123.86056253740274, 202.97366846199878], [92.3797729618163, 86.05572755417957], [87.30468319559228, 136.45509641873278], [201.46764705882353, 84.12352941176471], [199.05340078695895, 188.72625070264192]])
 COLORS = {
     'red': [
         (np.array([0, 100, 100]), np.array([10, 255, 255]))
@@ -238,7 +247,7 @@ class VisualServoBot(YouBot):
         if len(self.ballPixelPositions) == len(TARGET):
             pixel_error = np.linalg.norm(TARGET - np.array(self.ballPixelPositions))
             print("pixel error",pixel_error, self.pixelErrorMin)
-            if (self.pixelErrorMin < 100) and (abs((self.pixelErrorMin-pixel_error)/pixel_error)>0.05) and (self.pixelErrorMin < pixel_error):
+            if (pixel_error < 100):
                 self.stop_flag = True
             if self.pixelErrorMin >= pixel_error:
                 self.pixelErrorMin = pixel_error
@@ -254,30 +263,29 @@ class VisualServoBot(YouBot):
         else:
             self.diff_sum = self.trace_joint(self.joints, self.target_thetas)
             print(self.diff_sum)
-            if self.diff_sum < 0.002:
+            if self.diff_sum < 0.005:
                 self.diff_sum = 0
 
     def calculateTarget(self):
         J = self.CalculateJacobian(self.ballPixelPositions)
-        print("ball position ",self.ballPixelPositions)
         ee_position = self.sim.getObjectPosition(self.camera_1)
-        ee_angle = self.sim.getObjectOrientation(self.camera_1) # radian
+        ee_angle = self.sim.getObjectOrientation(self.camera_1)
         self.targetPose = ee_position + ee_angle
         if len(J) > 0:
             velPixel = (TARGET - np.array(self.ballPixelPositions)).flatten()
             Jpinv = np.linalg.pinv(J)
             velCam = Jpinv@velPixel
-            x, y, z = velCam[:3]/50
-            a, b, c = velCam[3:]/50
-            print(f"output:{[x,y,z]},{np.round(np.degrees(np.array([a,b,c])),2)}")
+            x, y, z = velCam[:3]/10
+            a, b, c = velCam[3:]*1.2
+            # print(f"output:{[x,y,z]},{np.round(np.degrees(np.array([a,b,c])),2)}")
             self.targetPose[0] += x
             self.targetPose[1] -= y
             self.targetPose[2] -= z
-            self.targetPose[3] += a
-            self.targetPose[4] += b
-            self.targetPose[5] += c*20
+            self.targetPose[3] += np.clip(a,-0.01, 0.01)
+            self.targetPose[4] += np.clip(b,-0.1, 0.1)
+            self.targetPose[5] += np.clip(c,-0.1, 0.1)
             for i in range(3,6):
-                if self.targetPose[i] > np.pi:
+                if self.targetPose[i] >= np.pi:
                     self.targetPose[i] -= 2*np.pi
                 elif self.targetPose[i] < -np.pi:
                     self.targetPose[i] += 2*np.pi
@@ -285,8 +293,8 @@ class VisualServoBot(YouBot):
             dummy_handle = self.sim.createDummy(0.01)  # Size of dummy
             self.sim.setObjectPosition(dummy_handle, -1, self.targetPose[:3])
             self.sim.setObjectAlias(dummy_handle, f"Sample")
-            print("target pos!: ",self.targetPose[:3])
-            print("target angle!: ",np.round(np.degrees(self.targetPose[3:]),2))
+            # print("target pos!: ",self.targetPose[:3])
+            # print("target angle!: ",np.round(np.degrees(self.targetPose[3:]),2))
             js = self.read_joints(self.joints)
             ps = self.read_points(self.targetPose) # TODO
             target_thetas = self.solve(js, ps)
@@ -294,7 +302,6 @@ class VisualServoBot(YouBot):
             diff_sum = 0
             for i, target in enumerate(target_thetas):
                 diff = target - js[i]
-                print(diff,target,js[i])
                 diff_sum += abs(diff)
             return target_thetas, diff_sum
         else:
@@ -339,11 +346,11 @@ class VisualServoBot(YouBot):
         j0 = js[0]
         initial_thetas = np.array([js[0], js[1], js[2], js[3], js[4]])
         params = [ps[0], pt]
-        theta_bounds = [(np.deg2rad(-5),np.deg2rad(5)),
-                        (np.deg2rad(-80),np.deg2rad(-30)),
-                        (np.deg2rad(-80),np.deg2rad(-30)),
-                        (np.deg2rad(-80),np.deg2rad(-30)),
-                        (np.deg2rad(-20),np.deg2rad(20))]
+        theta_bounds = [(np.deg2rad(-0.5),np.deg2rad(0.5)),
+                        (np.deg2rad(-80),np.deg2rad(-50)),
+                        (np.deg2rad(-80),np.deg2rad(-50)),
+                        (np.deg2rad(-90),np.deg2rad(-30)),
+                        (np.deg2rad(-45),np.deg2rad(45))]
 
         result = minimize(
             ik_cost,                     # 목적 함수
@@ -351,7 +358,7 @@ class VisualServoBot(YouBot):
             args=(params,),              # 추가 매개변수
             bounds=theta_bounds,         # 범위 제한
             method='L-BFGS-B',           # 제약 조건을 지원하는 최적화 알고리즘
-            options={'ftol': 1e-8}       # 수렴 기준
+            options={'ftol': 1e-9}       # 수렴 기준
         )
 
         return result.x
@@ -362,16 +369,14 @@ class VisualServoBot(YouBot):
         thetas = []
         for i, target in enumerate(target_thetas):
             diff = target - js[i]
-            if diff > 0.1:
-                diff = 0.1
-            elif diff < -0.1:
-                diff = -0.1
+            if diff > 0.005:
+                diff = 0.005
+            elif diff < -0.005:
+                diff = -0.005
             thetas.append(js[i]+diff)
             diff_sum += abs(diff)
         for joint, theta in zip(joints, thetas):
             self.sim.setJointTargetPosition(joint, theta)
-        # print("---target theta:",np.round(np.degrees(target_thetas),2))
-        # print("---theta:",np.round(np.degrees(np.array(thetas)),2),np.round(np.degrees(js),2))
         return diff_sum
 
     def getGlobalFocalLength(self):
@@ -386,33 +391,65 @@ class VisualServoBot(YouBot):
         globalFocalLength = pixelFocalLength * distancePerPixel
         return 1/distancePerPixel
 
+    # def detect_features(self, image):
+    #     # BGR에서 HSV로 변환
+    #     image = cv2.flip(image.copy(),1)
+    #     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    #     ballPixelPositions = []
+    #     for color, ranges in COLORS.items():
+    #         mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    #         for lower, upper in ranges:
+    #             mask += cv2.inRange(hsv, lower, upper)
+        
+    #         # 노이즈 제거
+    #         kernel = np.ones((3,3), np.uint8)
+    #         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    #         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            
+    #         # 윤곽선 찾기
+    #         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #         if contours:
+    #             for contour in contours:
+    #                 M = cv2.moments(contour)
+    #                 # 중심 좌표 계산
+    #                 if M["m00"] != 0:
+    #                     cX = (M["m10"] / M["m00"])
+    #                     cY = (M["m01"] / M["m00"])
+    #                     # 원 그리기
+    #                     ballPixelPositions.append([cX, cY])
+    #                     cv2.circle(image, (int(cX), int(cY)), 3, (255, 255, 0), -1)
+    #     image = cv2.flip(image,1)
+    #     return image, ballPixelPositions
+
     def detect_features(self, image):
         # BGR에서 HSV로 변환
         image = image.copy()
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         ballPixelPositions = []
-        for color, ranges in COLORS.items():
-            mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
-            for lower, upper in ranges:
-                mask += cv2.inRange(hsv, lower, upper)
-        
-            # 노이즈 제거
-            kernel = np.ones((3,3), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            
-            # 윤곽선 찾기
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                for contour in contours:
-                    M = cv2.moments(contour)
-                    # 중심 좌표 계산
-                    if M["m00"] != 0:
-                        cX = (M["m10"] / M["m00"])
-                        cY = (M["m01"] / M["m00"])
-                        # 원 그리기
-                        ballPixelPositions.append([cX, cY])
-                        cv2.circle(image, (int(cX), int(cY)), 3, (255, 255, 0), -1)
+        # Aruco 사전 및 파라미터 설정
+        aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+        parameters = cv2.aruco.DetectorParameters()
+
+        # 이미지 읽기 (회전된 마커 포함)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Aruco 마커 감지
+        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+        corners, ids, _ = detector.detectMarkers(gray)
+        # ids = np.squeeze(ids)
+        # 4. 탐지된 마커 처리
+        if ids is not None:
+            if len(ids) >= 2:
+                ids_array = ids.flatten()
+                # argsort()를 사용해 인덱스 얻기
+                sorted_indices = np.argsort(ids_array)
+                ids = ids[sorted_indices]
+                corners = [corners[i] for i in sorted_indices]
+                for corner in corners:
+                    corner = np.squeeze(corner)
+                    for feat in corner:
+                        x,y = feat
+                        ballPixelPositions.append([x, y])
+                        cv2.circle(image, (int(x), int(y)), 3, (255, 255, 0), -1)
         return image, ballPixelPositions
         
     def getImageJacobian(self, z, u, v):
